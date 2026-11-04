@@ -1,0 +1,28 @@
+---
+- name: Install Valkey
+  hosts: [all]
+  become: true
+
+  tasks:
+    - name: Install basic packages
+      ansible.builtin.apt:
+        name:
+          - ca-certificates 
+          - curl
+          - gnupg
+          - lsb-release
+          - tcpdump
+
+    - name: Add bookworm-backports repository
+      ansible.builtin.apt_repository:
+        repo: "deb http://deb.debian.org/debian bookworm-backports main"
+        state: present
+        update_cache: yes
+
+    - name: Install Valkey packages
+      ansible.builtin.apt:
+        name:
+          - valkey
+          - valkey-sentinel
+          - valkey-tools
+        state: present
