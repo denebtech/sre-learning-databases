@@ -30,14 +30,14 @@ appendonly yes
 
 Then restart the service:
 
-```bash
+```sh
 sudo systemctl restart valkey-server
 sudo systemctl status valkey-server
 ```
 
 Check that Valkey is listening on the network interface and not just localhost:
 
-```bash
+```sh
 ss -tulpn | grep 6379
 ```
 
@@ -76,13 +76,13 @@ appendonly yes
 
 Then restart the services:
 
-```bash
+```sh
 sudo systemctl restart valkey-server
 ```
 
 Verify replication:
 
-```bash
+```sh
 valkey-cli -h 192.168.56.16 -p 6379 INFO replication
 valkey-cli -h 192.168.56.17 -p 6379 INFO replication
 ```
@@ -152,7 +152,7 @@ sentinel parallel-syncs valkeySentinel 1
 
 Start Sentinel on each node:
 
-```bash
+```sh
 sudo systemctl start valkey-sentinel
 sudo systemctl status valkey-sentinel
 ```
@@ -161,7 +161,7 @@ sudo systemctl status valkey-sentinel
 
 From any node:
 
-```bash
+```sh
 valkey-cli -p 26379 SENTINEL masters
 valkey-cli -p 26379 SENTINEL get-master-addr-by-name valkeySentinel
 ```
@@ -171,42 +171,197 @@ vagrant@valkey-node-15:~$ valkey-cli -p 26379 SENTINEL get-master-addr-by-name v
 1) "192.168.56.15"
 2) "6379"
 ```
+From host:
+
+```sh
+valkey.cli -h 192.168.56.15 -p 26379 SENTINEL get-master-addr-by-name valkeySentinel
+```
 
 Expected result:
 
-```text
+```sh
 192.168.56.15
 6379
 ```
 
 You can also inspect the Sentinel view from each node:
 
-```bash
+```sh
 valkey-cli -h 192.168.56.15 -p 26379 SENTINEL sentinels valkeySentinel
 valkey-cli -h 192.168.56.16 -p 26379 SENTINEL sentinels valkeySentinel
 valkey-cli -h 192.168.56.17 -p 26379 SENTINEL sentinels valkeySentinel
 ```
 
-## Failover test
+From host:
 
-To test automatic failover, stop the master service on node1:
+```sh
+valkey.cli -h 192.168.56.15 -p 26379 SENTINEL sentinels valkeySentinel
+```
 
-```bash
-sudo systemctl stop valkey-server
+-----------------------------------------------------------------------------------
+
+# Apendix A: Testing
+
+## Test 1 - Failover
+
+To test automatic failover, stop the master service on node1 (IP: 192.168.56.15):
+
+```sh
+sudo systemctl stop valkey-sentinel.service
 ```
 
 Then check which node becomes the new master:
 
-```bash
+```sh
 valkey-cli -p 26379 SENTINEL get-master-addr-by-name valkeySentinel
 ```
 
-A quorum of 2 Sentinel nodes is required for a failover decision.
+From host:
 
-## Node IPs used in this lab
+```sh
+valkey.cli -h 192.168.56.16 -p 26379 SENTINEL get-master-addr-by-name valkeySentinel
+valkey.cli -h 192.168.56.17 -p 26379 SENTINEL get-master-addr-by-name valkeySentinel
+```
 
-- node1: `192.168.56.15`
-- node2: `192.168.56.16`
-- node3: `192.168.56.17`
+In both cases, I get node3 (IP: 192.168.56.17) as a new master:
 
-This lab is designed around a master/replica topology with a 3-node Sentinel quorum for high availability and automatic failover.
+```sh
+1) "192.168.56.17"
+2) "6379"
+```
+
+Start node1 to verify the master:
+
+```sh
+sudo systemctl start valkey-sentinel.service
+```
+
+```sh
+valkey.cli -h 192.168.56.15 -p 26379 SENTINEL get-master-addr-by-name valkeySentinel
+1) "192.168.56.17"
+2) "6379"
+```
+
+Master persist in node3.
+
+## Test 2 - Replication
+
+To test replication, add data on the master node first:
+
+```sh
+valkey-cli -h 192.168.56.15 -p 6379 SET lab:replication:01 "hello-from-master"
+valkey-cli -h 192.168.56.15 -p 6379 SET lab:replication:02 "replica-check"
+```
+
+```sh
+vagrant@valkey-node-15:~$ valkey-cli -h 192.168.56.15 -p 6379 SET lab:replication:01 "hello-from-master"
+OK
+vagrant@valkey-node-15:~$ valkey-cli -h 192.168.56.15 -p 6379 SET lab:replication:02 "replica-check"
+OK
+```
+
+Then verify the data is present on the replicas:
+
+```sh
+valkey-cli -h 192.168.56.16 -p 6379 GET lab:replication:01
+valkey-cli -h 192.168.56.17 -p 6379 GET lab:replication:01
+
+valkey-cli -h 192.168.56.16 -p 6379 GET lab:replication:02
+valkey-cli -h 192.168.56.17 -p 6379 GET lab:replication:02
+```
+
+```sh
+vagrant@valkey-node-15:~$ valkey-cli -h 192.168.56.16 -p 6379 GET lab:replication:01
+"hello-from-master"
+vagrant@valkey-node-15:~$ valkey-cli -h 192.168.56.17 -p 6379 GET lab:replication:01
+"hello-from-master"
+vagrant@valkey-node-15:~$ valkey-cli -h 192.168.56.16 -p 6379 GET lab:replication:02
+"replica-check"
+vagrant@valkey-node-15:~$ valkey-cli -h 192.168.56.17 -p 6379 GET lab:replication:02
+"replica-check"
+
+```
+
+Now stop one replica node to simulate a temporary outage. For example, stop node2 (192.168.56.16):
+
+```sh
+vagrant ssh valkey-node-16
+sudo systemctl stop valkey-server
+```
+
+From the master, add new data while the replica is down:
+
+```sh
+valkey-cli -h 192.168.56.15 -p 6379 SET lab:replication:03 "written-while-node2-offline"
+valkey-cli -h 192.168.56.15 -p 6379 SET lab:replication:04 "another-update"
+```
+
+```sh
+vagrant@valkey-node-15:~$ valkey-cli -h 192.168.56.15 -p 6379 SET lab:replication:03 "written-while-node2-offline"
+OK
+vagrant@valkey-node-15:~$ valkey-cli -h 192.168.56.15 -p 6379 SET lab:replication:04 "another-update"
+OK
+```
+
+Check that the remaining replica is updated, while node2 is still stopped:
+
+```sh
+valkey-cli -h 192.168.56.17 -p 6379 GET lab:replication:03
+valkey-cli -h 192.168.56.17 -p 6379 GET lab:replication:04
+```
+
+```sh
+vagrant@valkey-node-15:~$ valkey-cli -h 192.168.56.17 -p 6379 GET lab:replication:03
+"written-while-node2-offline"
+vagrant@valkey-node-15:~$ valkey-cli -h 192.168.56.17 -p 6379 GET lab:replication:04
+"another-update"
+```
+
+Restart the stopped node and confirm it catches up with the master:
+
+```sh
+vagrant ssh valkey-node-16
+sudo systemctl start valkey-server
+sudo systemctl status valkey-server
+```
+
+Check replication status and validate the missing data is synchronized back to the restarted node:
+
+```sh
+valkey-cli -h 192.168.56.16 -p 6379 INFO replication
+valkey-cli -h 192.168.56.16 -p 6379 GET lab:replication:03
+valkey-cli -h 192.168.56.16 -p 6379 GET lab:replication:04
+```
+
+```sh
+vagrant@valkey-node-15:~$ valkey-cli -h 192.168.56.16 -p 6379 INFO replication
+# Replication
+role:slave
+master_host:192.168.56.15
+master_port:6379
+master_link_status:up
+master_last_io_seconds_ago:0
+master_sync_in_progress:0
+slave_read_repl_offset:4926800
+slave_repl_offset:4926800
+replicas_repl_buffer_size:0
+replicas_repl_buffer_peak:0
+slave_priority:100
+slave_read_only:1
+replica_announced:1
+connected_slaves:0
+replicas_waiting_psync:0
+master_failover_state:no-failover
+master_replid:4017e6692fe104a0551b1373cd00131b37c736a9
+master_replid2:0000000000000000000000000000000000000000
+master_repl_offset:4926800
+second_repl_offset:-1
+repl_backlog_active:1
+repl_backlog_size:10485760
+repl_backlog_first_byte_offset:4922498
+repl_backlog_histlen:4303
+vagrant@valkey-node-15:~$ valkey-cli -h 192.168.56.16 -p 6379 GET lab:replication:03
+"written-while-node2-offline"
+vagrant@valkey-node-15:~$ valkey-cli -h 192.168.56.16 -p 6379 GET lab:replication:04
+"another-update"
+```
