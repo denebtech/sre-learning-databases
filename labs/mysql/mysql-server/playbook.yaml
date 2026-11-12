@@ -1,0 +1,52 @@
+---
+- name: Install and configure MariaDB server
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Install dependencies
+      apt:
+        name:
+          - mariadb-server
+          - python3-pip
+          - python3-pymysql
+          - software-properties-common
+        state: present
+        update_cache: yes
+
+    - name: Ensure MariaDB service is started and enabled
+      service:
+        name: mariadb
+        state: started
+        enabled: yes
+
+    - name: Create /root/.my.cnf for passwordless root access
+      ansible.builtin.copy:
+        dest: /root/.my.cnf
+        owner: root
+        group: root
+        mode: "0600"
+        content: |
+          [client]
+          user=root
+          password=supersecret
+
+    - name: Configure MariaDB root user password
+      ansible.mysql.mysql_user:
+        name: root
+        password: supersecret
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+
+    - name: Create a new database
+      ansible.mysql.mysql_db:
+        name: lab_db
+        state: present
+        login_unix_socket: /run/mysqld/mysqld.sock
+
+    - name: Create a new user and grant privileges
+      ansible.mysql.mysql_user:
+        name: lab_user
+        password: supersecret
+        priv: 'lab_db.*:ALL'
+        state: present
+        login_unix_socket: /run/mysqld/mysqld.sock

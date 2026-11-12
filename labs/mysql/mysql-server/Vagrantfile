@@ -1,0 +1,22 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "generic/debian12"
+  config.vm.box_version = "4.3.12"
+
+  config.vm.hostname = "mysql-server"
+  config.vm.network "private_network", ip: "192.168.56.11"
+  config.vm.network "forwarded_port", guest: 3306, host: 3306, host_ip: "127.0.0.1"
+
+  config.vbguest.auto_update = false if Vagrant.has_plugin?("vagrant-vbguest")
+  # use default private_key for vagrant user
+  config.ssh.insert_key = false
+
+  config.vm.provider "virtualbox" do |vb|
+    vb.name = "mysql-server"
+    vb.memory = 1024
+    vb.cpus = 2
+    vb.gui = false
+  end
+end
